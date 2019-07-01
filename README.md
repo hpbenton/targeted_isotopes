@@ -1,6 +1,6 @@
-#Quick Run 
+# Quick Run 
 
-##Parameters 
+## Parameters 
 
 Some needed parameters are 
 adductSelection="standard"
