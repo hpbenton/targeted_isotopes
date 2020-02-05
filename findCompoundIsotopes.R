@@ -1,9 +1,9 @@
 #!/usr/bin/R
 ## Written By: H. Paul Benton
 ## Made on: Febuary 18, 2019
-## Edited June 20, 2019
+## Edited Feb, 4, 2020
 ## For: Sulphure code
-## Version 1.0.1
+## Version 1.1.0
 options(stringsAsFactors = F)
 
 require(signal) || stop("Cannot load signal package needed.")
@@ -12,9 +12,10 @@ library(stringr)
 library(magrittr)
 require(xcms) || stop("Couldn't find package xcms\n")
 
-load("cmpList.Rda")
-adductSelection="standard"
-minScanTime=3; ppmDevN=7.5; snthresh=2; maxoFilt=1000; plot.prog=F; atom<-"C"
+load("cmpList-sulphure.Rda")
+cmpList<-cmpListSulphure
+# adductSelection="standard"
+# minScanTime=3; ppmDevN=7.5; snthresh=2; maxoFilt=1000; plot.prog=F; atom<-"S"
 
 ppmDev<-function (Mr, ppmE = 5) {
     error <- (ppmE/10^6) * Mr
@@ -26,7 +27,7 @@ ppm<-function(mm, tm){
     abs(((mm-tm)/tm)*10^6)
 }
 
-runSulphurFinder<-function(atom="C", minScanTime=3, ppmDevN=20, snthresh=2, maxoFilt=1000, adductSelection=c("all", "standard"), plot.prog=TRUE){
+runSulphurFinder<-function(atom="C", cmpList, minScanTime=3, ppmDevN=20, snthresh=2, maxoFilt=1000, adductSelection=c("all", "standard"), plot.prog=F){
     fl<-list.files(pattern="mzXML|mzData|mzML",
                    ignore.case = T,
                    recursive=T,
@@ -38,17 +39,28 @@ runSulphurFinder<-function(atom="C", minScanTime=3, ppmDevN=20, snthresh=2, maxo
         cat(paste0("Reading ", basename(fl[i]),"\n" ))
         object<-readMSData(fl[i], mode="onDisk", msLevel. = 1)
         cat(paste0("Finding peaks....\n"))
+        # pkl[[i]]<-tryCatch({
+        #     findCompound(object, cmpList, inputAtom=atom, minScanTime=minScanTime, 
+        #                  ppmDevN=ppmDevN, snthresh, maxoFilt, 
+        #                  adductSelection, plot.prog)
+        #     }, warning = function(w){
+        #         warning(paste0("WARNING on file ", fl[i], " -- ", w, "\n"))
+        #     }, error = function(e) {
+        #         cat(paste0("Skipping file ", fl[i], "\n"))
+        #         warning(paste0("ERROR on file ", fl[i], " -- ", e, "\n"))
+        #     }
+        # )
         pkl[[i]]<-findCompound(object, cmpList, inputAtom=atom, minScanTime=minScanTime, 
                                ppmDevN=ppmDevN, snthresh, maxoFilt, 
-                               plot.prog, adductSelection)
+                               adductSelection, plot.prog)
     }
     end.time<-Sys.time()
     end.time-start.time
-    return(resPKL)
+    return(pkl)
 }
 
 findCompoundIsotopes<-function(object, pkl, pklEIC,
-                               maxLook=1, deltaIso, minScantime, snthresh, 
+                               maxLook=1, deltaIso, minScanTime, snthresh, 
                                maxoFilt, cmp.list, ppmDevN=20, addID){
     
     maxLook<-as.integer(maxLook)
@@ -100,15 +112,15 @@ findCompoundIsotopes<-function(object, pkl, pklEIC,
                     return(NULL)
                 }else{
                     ResPeakIsoList[[i]]<- cbind("mz"=mzacc, "deltamz"=deltamz, 
-                                                "rt"=pk["rtmed"], "rtmax"=pk["rtmax"], "rtmin"=pk["rtmin"],
+                                                "rtmed"=pk["rtmed"], "rtmax"=pk["rtmax"], "rtmin"=pk["rtmin"],
                                                 "scanMin"=scanr[1], "scanMax"=scanr[2],
                                                 "into"=into, "intb"=intb, "maxo"=maxo, 
                                                 "sn"=sn, "adductID"=addID.iso, "corr"=rho, "isotopolog"=isoCol,
-                                                "ID"=cmp.list["ID"], "Name"=cmp.list["name"], 
+                                                "ID"=cmp.list["ID"], "Name"=cmp.list["Biocyc"], 
                                                 "mass"=cmp.list["mass"], "formula"=cmp.list["formula"],
                                                 "file"=basename(fileNames(object))
                                                 )
-                    # cat(" . ")
+                    cat(" . ")
                 } 
             }else{
                 next
@@ -117,10 +129,14 @@ findCompoundIsotopes<-function(object, pkl, pklEIC,
         isoResMat<-do.call("rbind", ResPeakIsoList)
         return(isoResMat)
     },  mat.iso, pkl, object, pklEIC, minScanTime, snthresh, maxoFilt, cmp.list, addID)
-    
+    # stop("what...")
     if(is.null(ans)){
         return(NULL)
-    } else{
+    } else if(is.list(ans) & is.null(ans[[1]])){
+        return(NULL)
+    } else if(ncol(ans) == 1){
+        return(t(ans))
+    }else{
         ResMat<-do.call("rbind", ans)
         rownames(ResMat)<-NULL
         return(ResMat)
@@ -138,7 +154,8 @@ getCompound<-function(object, mzr){
 }
 
 findCompound<-function(object, cmpList, inputAtom="C", minScanTime=5, 
-                       ppmDevN=20, snthresh=2, maxoFilt=1000, plot.prog=TRUE, adductSelection){
+                       ppmDevN=20, snthresh=2, maxoFilt=1000, adductSelection, plot.prog=FALSE){
+    
     if(!pmatch("OnDiskMSnExp", class(object), nomatch = 0)){
         stop("Not a MSnbase object")
     }
@@ -161,14 +178,25 @@ findCompound<-function(object, cmpList, inputAtom="C", minScanTime=5,
         if(adductSelection == "standard") adduct_list<-adduct_list[c(1,2,18,24),]
     }
     
-    cl <- makeCluster(35)
-    clusterEvalQ(cl, { source("findCompoundIsotopes.R")})
-    pkl.all<-parApply(cl, cmpList, 1, function(cmp.list, adduct.list, object, ppmDevN, mode, 
-                                                         plot.prog, maxoFilt,inputAtom){
-    # pkl.all<-apply(cmpList,  1, function(cmp.list, adduct.list, object, ppmDevN, mode, plot.prog, maxoFilt){
-        # cat(paste0("Compound:", cmp.list["Biocyc"], "\n"))
+    cl <- makeCluster(35, out="")
+    # clusterEvalQ(cl, { source("findCompoundIsotopes.R")})
+    clusterEvalQ(cl, {
+        require(signal) || stop("Cannot load signal package needed.")
+        require(caTools) || stop("Could not load caTools package which is needed.")
+        require(xcms) || stop("Couldn't find package xcms\n")
+        library(stringr)
+        library(magrittr)
+    })
+    clusterExport(cl, c("findCompoundIsotopes", "ppmDev", "ppm", "getCompound", "minRange",
+                        "getAccIsoMass", "getAccurateMass", "findIsotopeDelta"))
+
+    pkl.all<-parApply(cl, cmpList, 1, function(cmp.list, adduct.list, object, ppmDevN, mode,
+                                                         maxoFilt, inputAtom, minScanTime, plot.prog){
+    # pkl.all<-apply(cmpList,  1, function(cmp.list, adduct.list, object, ppmDevN, mode,
+    #                                      maxoFilt, inputAtom, minScanTime, plot.prog) {
+    cat(paste0("Compound:", cmp.list["Biocyc"], "\n"))
         pkl<-sapply(1:nrow(adduct_list), function(adductIDNo, cmp.list, object, ppmDevN, mode, adduct_list, 
-                                                  plot.prog, maxoFilt, inputAtom){
+                                                  maxoFilt, inputAtom, minScanTime, plot.prog){
             # mzr<-ppmDev(as.numeric(cmp.list["mass"])-adduct_list[adductID,"massdiff"], ppmDevN)
             adductID<-adduct_list[adductIDNo,]
             Mplus<-FALSE ## option to be added later
@@ -248,12 +276,13 @@ findCompound<-function(object, cmpList, inputAtom="C", minScanTime=5,
                                              "rtmed"=rtime[maxy],
                                              "rtmax"=rtmax, "rtmin"=rtmin,
                                              "scanMin"=peakrange[1], "scanMax"=peakrange[2],
-                                             "into"=into, intb=intb, "maxo"=maxo, 
+                                             "into"=into, "intb"=intb, "maxo"=maxo, 
                                              "sn"=sn, "adductID"=adductID[,"name"], "corr"=0, "isotopolog"=0,
-                                             "ID"=cmp.list["ID"], "Name"=cmp.list["name"],
+                                             "ID"=cmp.list["ID"], "Name"=cmp.list["Biocyc"],
                                              "mass"=cmp.list["mass"], "formula"=cmp.list["formula"],
                                              "file"=basename(fileNames(object))
                                              )
+                    cat("+")
                 }
                 if(plot.prog == T) dev.off()
             }
@@ -277,14 +306,14 @@ findCompound<-function(object, cmpList, inputAtom="C", minScanTime=5,
             inputAtomNo<-str_extract(as.character(cmp.list["formula"]), 
                                      paste0("\\.*", inputAtom,"\\d*"))
             maxLook<-max(1, gsub(inputAtom, "", inputAtomNo), na.rm=T)
-                
+            # stop("check here...")
             ## isotope finding 
             ## now we can do a targeted peak detetor using the peaklist from above !
             isoPKL<-findCompoundIsotopes(object, pkl=as.data.frame(ResMat), 
                                          pklEIC=ResEICList,
                                          maxLook=maxLook, 
                                          deltaIso=deltaIso, 
-                                         minScantime=minScanTime, 
+                                         minScanTime=minScanTime, 
                                          snthresh=snthresh, 
                                          maxoFilt=maxoFilt, cmp.list, 
                                          ppmDevN = ppmDevN,
@@ -297,11 +326,11 @@ findCompound<-function(object, cmpList, inputAtom="C", minScanTime=5,
                 pkmat<-rbind(ResMat,isoPKL)
                 return(pkmat)
             }
-        }, cmp.list, object, ppmDevN, mode, adduct_list, plot.prog, maxoFilt, inputAtom)
+        }, cmp.list, object, ppmDevN, mode, adduct_list, maxoFilt, inputAtom, minScanTime, plot.prog)
         # pkl<-do.call("rbind", pkl)
         gc()
         return(pkl)
-    }, adduct_list, object, ppmDevN, mode, plot.prog, maxoFilt, inputAtom)
+    }, adduct_list, object, ppmDevN, mode, maxoFilt, inputAtom, minScanTime, plot.prog)
     # pkl.all<-do.call("rbind", pkl.all)
     # rownames(pkl.all)<-NULL
     stopCluster(cl)
