@@ -1,7 +1,7 @@
 #!/usr/bin/R
 ## Written By: H. Paul Benton
 ## Made on: Febuary 18, 2019
-## Edited Feb, 4, 2020
+## Edited Feb, 6, 2020
 ## For: Sulphure code
 ## Version 1.1.0
 options(stringsAsFactors = F)
@@ -184,8 +184,8 @@ findCompound<-function(object, cmpList, inputAtom="C", minScanTime=5,
         require(signal) || stop("Cannot load signal package needed.")
         require(caTools) || stop("Could not load caTools package which is needed.")
         require(xcms) || stop("Couldn't find package xcms\n")
-        library(stringr)
-        library(magrittr)
+        require(stringr)
+        require(magrittr)
     })
     clusterExport(cl, c("findCompoundIsotopes", "ppmDev", "ppm", "getCompound", "minRange",
                         "getAccIsoMass", "getAccurateMass", "findIsotopeDelta"))

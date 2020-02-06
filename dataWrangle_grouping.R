@@ -18,7 +18,7 @@ for(i in 1:ncol(foo)){
                 } ## end of checking for NULL
                 
                 for(l in 1:ncol(pb)){
-                    res<-rbind(res, matrix(pb[,l], ncol=18))
+                    res<-rbind(res, matrix(pb[,l], ncol=ncol(res)))
                 } ## fucking stupid !!
                 
             } else if(is.list(foo[j,i][[k]])){
@@ -167,6 +167,3 @@ checkIsotopes<-function(raw_data, mass, ppmError=25){
     plot(chr_raw, col="red")
     dev.off()
 }
-
-
-
